@@ -48,6 +48,7 @@ Numeric
     Expression.__mod__
     Expression.ceil
     Expression.floor
+    Expression.round
 
 .. _api-comparison-expression:
 

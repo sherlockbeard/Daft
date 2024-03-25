@@ -342,6 +342,12 @@ class Expression:
         expr = self._expr.floor()
         return Expression._from_pyexpr(expr)
 
+    def round(self, digits: int | Expression = 0) -> Expression:
+        """The floor of a numeric expression (``expr.round()``)"""
+        digits_expr = Expression._to_expression(digits)
+        expr = self._expr.round(digits_expr._expr)
+        return Expression._from_pyexpr(expr)
+
     def count(self, mode: CountMode = CountMode.Valid) -> Expression:
         """Counts the number of values in the expression.
 

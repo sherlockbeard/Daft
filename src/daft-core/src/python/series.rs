@@ -116,6 +116,10 @@ impl PySeries {
         Ok(self.series.floor()?.into())
     }
 
+    pub fn round(&self, digits: i32) -> PyResult<Self> {
+        Ok(self.series.round(digits)?.into())
+    }
+
     pub fn take(&self, idx: &Self) -> PyResult<Self> {
         Ok(self.series.take(&idx.series)?.into())
     }

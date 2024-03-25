@@ -32,6 +32,7 @@ mod mean;
 mod null;
 mod pairwise;
 mod repr;
+mod round;
 mod search_sorted;
 mod sort;
 mod struct_;
@@ -100,6 +101,12 @@ pub trait DaftNotNull {
 pub trait DaftIsNan {
     type Output;
     fn is_nan(&self) -> Self::Output;
+}
+
+pub trait RoundOps {
+    fn round(&self, digits: i32) -> DaftResult<Self>
+    where
+        Self: Sized;
 }
 
 pub type VecIndices = Vec<u64>;

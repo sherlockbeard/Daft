@@ -361,6 +361,12 @@ class Series:
     def floor(self) -> Series:
         return Series._from_pyseries(self._series.floor())
 
+    def round(self, digits: Series) -> Series:
+        if not isinstance(digits, Series):
+            raise ValueError(f"expected another Series but got {type(digits)}")
+        assert self._series is not None and digits._series is not None
+        return Series._from_pyseries(self._series.round(digits._series))
+
     def __add__(self, other: object) -> Series:
         if not isinstance(other, Series):
             raise TypeError(f"expected another Series but got {type(other)}")
