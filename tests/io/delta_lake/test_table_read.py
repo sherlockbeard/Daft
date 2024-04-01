@@ -38,6 +38,11 @@ def test_deltalake_read_basic(tmp_path, base_table):
     expected_schema = Schema.from_pyarrow_schema(deltalake.DeltaTable(path).schema().to_pyarrow())
     assert df.schema() == expected_schema
     assert_pyarrow_tables_equal(df.to_arrow(), base_table)
+    a = df.write_delta(str(tmp_path / "some_table2"))
+    a = df.write_delta(str(tmp_path / "some_table2"))
+    df = daft.read_delta_lake(str(tmp_path / "some_table2"))
+    df.show()
+    print(a)
 
 
 def test_deltalake_read_full(deltalake_table):

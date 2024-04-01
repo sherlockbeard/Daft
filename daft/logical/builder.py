@@ -208,3 +208,10 @@ class LogicalPlanBuilder:
         io_config = _convert_iceberg_file_io_properties_to_io_config(table.io.properties)
         builder = self._builder.iceberg_write(name, location, spec_id, schema, props, columns, io_config)
         return LogicalPlanBuilder(builder)
+
+    def write_delta(self, path: str | pathlib.Path, io_config: IOConfig) -> LogicalPlanBuilder:
+
+        schema = self.schema()
+        columns = schema.column_names()
+        builder = self._builder.delta_write(str(path), columns, io_config)
+        return LogicalPlanBuilder(builder)

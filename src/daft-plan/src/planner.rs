@@ -729,6 +729,13 @@ pub fn plan(logical_plan: &LogicalPlan, cfg: Arc<DaftExecutionConfig>) -> DaftRe
                             input_physical.into(),
                         )))
                     }
+                    crate::sink_info::CatalogType::DeltaLake(deltalake_info) => {
+                        Ok(PhysicalPlan::DeltaLakeWrite(DeltaLakeWrite::new(
+                            schema.clone(),
+                            deltalake_info.clone(),
+                            input_physical.into(),
+                        )))
+                    }
                 },
             }
         }

@@ -663,6 +663,149 @@ def write_iceberg(
     return MicroPartition.from_pydict({"data_file": Series.from_pylist(data_files, name="data_file", pyobj="force")})
 
 
+def write_deltalake(
+    mp: MicroPartition,
+    base_path: str,
+    schema: Schema,
+    io_config: IOConfig | None = None,
+):
+
+    from deltalake.schema import convert_pyarrow_table
+    from deltalake.writer import (
+        AddAction,
+        DeltaJSONEncoder,
+        get_file_stats_from_metadata,
+    )
+
+    [resolved_path], fs = _resolve_paths_and_filesystem(base_path, io_config=io_config)
+    if isinstance(base_path, pathlib.Path):
+        path_str = str(base_path)
+    else:
+        path_str = base_path
+
+    protocol = get_protocol_from_path(path_str)
+    canonicalized_protocol = canonicalize_protocol(protocol)
+
+    data_files = []
+
+    def file_visitor(written_file: Any) -> None:
+        path = written_file.path.split("/")[-1]
+        # above one is temp solution, have to create filesystem and pass pyarrow base path as ='/' (random thoughts)
+        # path, partition_values = get_partitions_from_path(written_file.path)
+        schema = written_file.metadata.schema
+        stats = get_file_stats_from_metadata(written_file.metadata)
+
+        import json
+        from datetime import datetime
+
+        from daft.utils import ARROW_VERSION
+
+        # PyArrow added support for written_file.size in 9.0.0
+        if ARROW_VERSION >= (9, 0, 0):
+            size = written_file.size
+        # elif filesystem is not None:  //TODO: Implement filesystem
+        #     size = filesystem.get_file_info([path])[0].size
+        else:
+            size = 0
+
+        data_files.append(
+            [
+                AddAction(
+                    path,
+                    size,
+                    {},
+                    int(datetime.now().timestamp() * 1000),
+                    True,
+                    json.dumps(stats, cls=DeltaJSONEncoder),
+                ),
+                schema,
+            ]
+        )
+
+    is_local_fs = canonicalized_protocol == "file"
+
+    execution_config = get_context().daft_execution_config
+    execution_config.parquet_inflation_factor
+
+    # target_file_size = 512 * 1024 * 1024
+    # TARGET_ROW_GROUP_SIZE = 128 * 1024 * 1024
+
+    # max_open_files: int = 1024,
+    # max_rows_per_file: int = 10 * 1024 * 1024,
+    # min_rows_per_group: int = 64 * 1024,
+    # max_rows_per_group: int = 128 * 1024,
+
+    arrow_table = mp.to_arrow()
+    arrow_batch = convert_pyarrow_table(arrow_table, False)
+
+    # size_bytes = arrow_table.nbytes
+
+    # target_num_files = max(math.ceil(size_bytes / target_file_size / inflation_factor), 1)
+    # num_rows = len(arrow_table)
+
+    # rows_per_file = max(math.ceil(num_rows / target_num_files), 1)
+
+    # target_row_groups = max(math.ceil(size_bytes / TARGET_ROW_GROUP_SIZE / inflation_factor), 1)
+    # rows_per_row_group = max(min(math.ceil(num_rows / target_row_groups), rows_per_file), 1)
+
+    format = pads.ParquetFileFormat()
+
+    _write_tabular_arrow_batch(
+        arrow_batch_reader=arrow_batch,
+        schema=None,
+        full_path=resolved_path,
+        format=format,
+        opts=format.make_write_options(compression="zstd"),
+        fs=fs,
+        rows_per_file=None,
+        rows_per_row_group=None,
+        create_dir=is_local_fs,
+        file_visitor=file_visitor,
+    )
+
+    return MicroPartition.from_pydict({"data_file": Series.from_pylist(data_files, name="data_file", pyobj="force")})
+
+
+def _write_tabular_arrow_batch(
+    arrow_batch_reader: pa.RecordBatchFileReader,
+    schema: pa.Schema | None,
+    full_path: str,
+    format: pads.FileFormat,
+    opts: pads.FileWriteOptions | None,
+    fs: Any,
+    rows_per_file: int | None,
+    rows_per_row_group: int | None,
+    create_dir: bool,
+    file_visitor: Callable | None,
+):
+    kwargs = dict()
+
+    from daft.utils import ARROW_VERSION
+
+    if ARROW_VERSION >= (7, 0, 0):
+        kwargs["max_rows_per_file"] = rows_per_file
+        kwargs["min_rows_per_group"] = rows_per_row_group
+        kwargs["max_rows_per_group"] = rows_per_row_group
+
+    if ARROW_VERSION >= (8, 0, 0) and not create_dir:
+        kwargs["create_dir"] = False
+
+    pads.write_dataset(
+        arrow_batch_reader,
+        schema=schema,
+        base_dir=full_path,
+        basename_template=str(uuid4()) + "-{i}." + format.default_extname,
+        format=format,
+        partitioning=None,
+        file_options=opts,
+        file_visitor=file_visitor,
+        use_threads=True,
+        existing_data_behavior="overwrite_or_ignore",
+        filesystem=fs,
+        **kwargs,
+    )
+
+
 def _write_tabular_arrow_table(
     arrow_table: pa.Table,
     schema: pa.Schema | None,
