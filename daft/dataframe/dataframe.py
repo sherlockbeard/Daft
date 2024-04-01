@@ -23,11 +23,23 @@ from typing import (
     TypeVar,
     Union,
 )
+from urllib.parse import urlparse
 
 from daft.api_annotations import DataframePublicAPI
 from daft.context import get_context
 from daft.convert import InputListType
-from daft.daft import FileFormat, IOConfig, JoinStrategy, JoinType, ResourceRequest
+from daft.daft import (
+    AzureConfig,
+    FileFormat,
+    GCSConfig,
+    IOConfig,
+    JoinStrategy,
+    JoinType,
+    NativeStorageConfig,
+    ResourceRequest,
+    S3Config,
+    StorageConfig,
+)
 from daft.dataframe.preview import DataFramePreview
 from daft.datatype import DataType
 from daft.errors import ExpressionTypeError
@@ -472,7 +484,9 @@ class DataFrame:
         merge = _MergingSnapshotProducer(operation=operation, table=table)
 
         builder = self._builder.write_iceberg(table)
+        print(builder.pretty_print())
         write_df = DataFrame(builder)
+        a = write_df.explain(show_all=True)
         write_df.collect()
 
         write_result = write_df.to_pydict()
@@ -514,6 +528,135 @@ class DataFrame:
         # NOTE: We are losing the history of the plan here.
         # This is due to the fact that the logical plan of the write_iceberg returns datafiles but we want to return the above data
         return with_operations
+
+    @DataframePublicAPI
+    def write_delta(
+        self,
+        path: str,
+        partition_by: Optional[Union[List[str], str]] = None,
+        compression: str = "snappy",
+        large_dtypes: bool = False,
+        io_config: Optional[IOConfig] = None,
+    ) -> None:
+
+        from deltalake.writer import (
+            try_get_table_and_table_uri,
+            write_deltalake_pyarrow,
+        )
+
+        io_config = get_context().daft_planning_config.default_io_config if io_config is None else io_config
+        storage_config = StorageConfig.native(NativeStorageConfig(False, io_config))
+        storage_options = _storage_config_to_storage_options(storage_config, path)
+        table, table_uri = try_get_table_and_table_uri(path, storage_options)
+        if table is not None:
+            storage_options = table._storage_options or {}
+            storage_options.update(storage_options or {})
+
+            table.update_incremental()
+
+        # if table:  # already exists
+        #     # Deltaschema = _convert_pa_schema_to_delta(self.schema, large_dtypes=large_dtypes)
+        #     # if Deltaschema != table.schema().to_pyarrow(
+        #     #     as_large_types=large_dtypes
+        #     # ) and not (mode == "overwrite" and overwrite_schema):
+        #     #     raise ValueError(
+        #     #         "Schema of data does not match table schema\n"
+        #     #         f"Data schema:\n{schema}\nTable Schema:\n{table.schema().to_pyarrow(as_large_types=large_dtypes)}"
+        #     #     )
+        #     # if mode == "error":
+        #     #     raise AssertionError("DeltaTable already exists.")
+        #     # elif mode == "ignore":
+        #     #     return
+
+        #     current_version = table.version()
+
+        #     if partition_by:
+        #         assert partition_by == table.metadata().partition_columns
+        #     else:
+        #         partition_by = table.metadata().partition_columns
+
+        # else:  # creating a new table
+        #     current_version = -1
+
+        # dtype_map = {
+        #     pa.large_string(): pa.string(),
+        # }
+
+        # def _large_to_normal_dtype(dtype: pa.DataType) -> pa.DataType:
+        #     try:
+        #         return dtype_map[dtype]
+        #     except KeyError:
+        #         return dtype
+
+        # if partition_by:
+        #     table_schema: pa.Schema = self.to_arrow().schema # find a way to convert daft schema to pyarrow schema without this (random thoughts)
+        #     from daft.utils import ARROW_VERSION
+        #     if ARROW_VERSION < (12, 0, 0):
+        #         partition_schema = pa.schema(
+        #             [
+        #                 pa.field(
+        #                     name, _large_to_normal_dtype(table_schema.field(name).type)
+        #                 )
+        #                 for name in partition_by
+        #             ]
+        #         )
+        #     else:
+        #         partition_schema = pa.schema(
+        #             [table_schema.field(name) for name in partition_by]
+        #         )
+        #     partitioning = ds.partitioning(partition_schema, flavor="hive")
+        # else:
+        #     partitioning = None
+
+        # if table is not None:
+        #     # We don't currently provide a way to set invariants
+        #     # (and maybe never will), so only enforce if already exist.
+        #     if table.protocol().min_writer_version > MAX_SUPPORTED_WRITER_VERSION:
+        #         raise DeltaProtocolError(
+        #             "This table's min_writer_version is "
+        #             f"{table.protocol().min_writer_version}, "
+        #             "but this method only supports version 2."
+        #         )
+
+        builder = self._builder.write_delta(path=path, io_config=io_config)
+        write_df = DataFrame(builder)
+        write_df.collect()
+
+        write_result = write_df.to_pydict()
+        assert "data_file" in write_result
+        data_files = write_result["data_file"]
+        add_action = []
+
+        operations = []
+        respath = []
+        size = []
+
+        for data_file in data_files:
+            operations.append("ADD")
+            respath.append(data_file[0].path)
+            size.append(data_file[0].size)
+            add_action.append(data_file[0])
+
+        if table is None:
+            write_deltalake_pyarrow(
+                table_uri,
+                data_files[-1][1].to_arrow_schema(),
+                add_action,
+                "append",
+                [],
+            )
+        else:
+            table._table.create_write_transaction(
+                add_action,
+                "append",
+                [],
+                data_files[-1][1].to_arrow_schema(),
+                None,
+                None,
+            )
+            table.update_incremental()
+
+        return None
 
     ###
     # DataFrame operations
@@ -1740,3 +1883,73 @@ class GroupedDataFrame:
             DataFrame: DataFrame with grouped aggregations
         """
         return self.df._map_groups(udf, group_by=self.group_by)
+
+
+from typing import Any
+from typing import Dict as dict
+from typing import Union
+
+
+def _storage_config_to_storage_options(storage_config: StorageConfig, table_uri: str) -> Union[dict[str, str], None]:
+    """
+    Converts the Daft storage config to a storage options dict that deltalake/object_store
+    understands.
+    """
+    config = storage_config.config
+    assert isinstance(config, NativeStorageConfig)
+    io_config = config.io_config
+    return _io_config_to_storage_options(io_config, table_uri)
+
+
+def _io_config_to_storage_options(io_config: IOConfig, table_uri: str) -> Union[dict[str, str], None]:
+    scheme = urlparse(table_uri).scheme
+    if scheme == "s3" or scheme == "s3a":
+        return _s3_config_to_storage_options(io_config.s3)
+    elif scheme == "gcs" or scheme == "gs":
+        return _gcs_config_to_storage_options(io_config.gcs)
+    elif scheme == "az" or scheme == "abfs":
+        return _azure_config_to_storage_options(io_config.azure)
+    else:
+        return None
+
+
+def _s3_config_to_storage_options(s3_config: S3Config) -> dict[str, str]:
+    storage_options: dict[str, Any] = {}
+    if s3_config.region_name is not None:
+        storage_options["region"] = s3_config.region_name
+    if s3_config.endpoint_url is not None:
+        storage_options["endpoint_url"] = s3_config.endpoint_url
+    if s3_config.key_id is not None:
+        storage_options["access_key_id"] = s3_config.key_id
+    if s3_config.session_token is not None:
+        storage_options["session_token"] = s3_config.session_token
+    if s3_config.access_key is not None:
+        storage_options["secret_access_key"] = s3_config.access_key
+    if s3_config.use_ssl is not None:
+        storage_options["allow_http"] = "false" if s3_config.use_ssl else "true"
+    if s3_config.verify_ssl is not None:
+        storage_options["allow_invalid_certificates"] = "false" if s3_config.verify_ssl else "true"
+    if s3_config.connect_timeout_ms is not None:
+        storage_options["connect_timeout"] = str(s3_config.connect_timeout_ms) + "ms"
+    if s3_config.anonymous:
+        raise ValueError(
+            "Reading from DeltaLake does not support anonymous mode! Please supply credentials via your S3Config."
+        )
+    return storage_options
+
+
+def _azure_config_to_storage_options(azure_config: AzureConfig) -> dict[str, str]:
+    storage_options = {}
+    if azure_config.storage_account is not None:
+        storage_options["account_name"] = azure_config.storage_account
+    if azure_config.access_key is not None:
+        storage_options["access_key"] = azure_config.access_key
+    if azure_config.endpoint_url is not None:
+        storage_options["endpoint"] = azure_config.endpoint_url
+    if azure_config.use_ssl is not None:
+        storage_options["allow_http"] = "false" if azure_config.use_ssl else "true"
+    return storage_options
+
+
+def _gcs_config_to_storage_options(_: GCSConfig) -> dict[str, str]:
+    return {}

@@ -135,6 +135,28 @@ def iceberg_write(
     )
 
 
+def deltalake_write(
+    child_plan: InProgressPhysicalPlan[PartitionT],
+    base_path: str,
+    schema: Schema,
+    io_config: IOConfig | None,
+) -> InProgressPhysicalPlan[PartitionT]:
+    """Write the results of `child_plan` into pyiceberg data files described by `write_info`."""
+
+    yield from (
+        step.add_instruction(
+            execution_step.WriteDeltaLake(
+                base_path=base_path,
+                schema=schema,
+                io_config=io_config,
+            ),
+        )
+        if isinstance(step, PartitionTaskBuilder)
+        else step
+        for step in child_plan
+    )
+
+
 def pipeline_instruction(
     child_plan: InProgressPhysicalPlan[PartitionT],
     pipeable_instruction: Instruction,

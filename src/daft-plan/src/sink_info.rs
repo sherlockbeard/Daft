@@ -41,6 +41,7 @@ pub struct CatalogInfo {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum CatalogType {
     Iceberg(IcebergCatalogInfo),
+    DeltaLake(DeltaLakeCatalogInfo),
 }
 
 #[cfg(feature = "python")]
@@ -92,6 +93,44 @@ impl IcebergCatalogInfo {
         res.push(format!("Table Name = {}", self.table_name));
         res.push(format!("Table Location = {}", self.table_location));
         res.push(format!("Spec ID = {}", self.spec_id));
+        match &self.io_config {
+            None => res.push("IOConfig = None".to_string()),
+            Some(io_config) => res.push(format!("IOConfig = {}", io_config)),
+        };
+        res
+    }
+}
+
+#[cfg(feature = "python")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeltaLakeCatalogInfo {
+    pub path: String,
+    pub io_config: Option<IOConfig>,
+}
+
+#[cfg(feature = "python")]
+impl PartialEq for DeltaLakeCatalogInfo {
+    fn eq(&self, other: &Self) -> bool {
+        self.path == other.path && self.io_config == other.io_config
+    }
+}
+
+#[cfg(feature = "python")]
+impl Eq for DeltaLakeCatalogInfo {}
+
+#[cfg(feature = "python")]
+impl Hash for DeltaLakeCatalogInfo {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.path.hash(state);
+        self.io_config.hash(state);
+    }
+}
+
+#[cfg(feature = "python")]
+impl DeltaLakeCatalogInfo {
+    pub fn multiline_display(&self) -> Vec<String> {
+        let mut res = vec![];
+        res.push(format!("Table Name = {}", self.path));
         match &self.io_config {
             None => res.push("IOConfig = None".to_string()),
             Some(io_config) => res.push(format!("IOConfig = {}", io_config)),

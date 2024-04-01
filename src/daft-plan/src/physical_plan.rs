@@ -30,6 +30,9 @@ use crate::{
 #[cfg(feature = "python")]
 use crate::sink_info::IcebergCatalogInfo;
 
+#[cfg(feature = "python")]
+use crate::sink_info::DeltaLakeCatalogInfo;
+
 pub(crate) type PhysicalPlanRef = Arc<PhysicalPlan>;
 
 /// Physical plan for a Daft query.
@@ -64,6 +67,8 @@ pub enum PhysicalPlan {
     TabularWriteCsv(TabularWriteCsv),
     #[cfg(feature = "python")]
     IcebergWrite(IcebergWrite),
+    #[cfg(feature = "python")]
+    DeltaLakeWrite(DeltaLakeWrite),
 }
 
 impl PhysicalPlan {
@@ -206,6 +211,9 @@ impl PhysicalPlan {
             Self::IcebergWrite(..) => {
                 ClusteringSpec::Unknown(UnknownClusteringConfig::new(1)).into()
             }
+            #[cfg(feature = "python")]
+            Self::DeltaLakeWrite(DeltaLakeWrite { input, .. }) => input.clustering_spec(),
+            // not sure what clustering_spec (random thoughts)
         }
     }
 
@@ -276,6 +284,8 @@ impl PhysicalPlan {
             }
             #[cfg(feature = "python")]
             Self::IcebergWrite(_) => None,
+            #[cfg(feature = "python")]
+            Self::DeltaLakeWrite(_) => None,
         }
     }
 
@@ -303,6 +313,8 @@ impl PhysicalPlan {
             Self::TabularWriteJson(TabularWriteJson { input, .. }) => vec![input],
             #[cfg(feature = "python")]
             Self::IcebergWrite(IcebergWrite { input, .. }) => vec![input],
+            #[cfg(feature = "python")]
+            Self::DeltaLakeWrite(DeltaLakeWrite { input, .. }) => vec![input],
             Self::HashJoin(HashJoin { left, right, .. }) => vec![left, right],
             Self::BroadcastJoin(BroadcastJoin {
                 broadcaster,
@@ -343,6 +355,8 @@ impl PhysicalPlan {
                 Self::TabularWriteJson(TabularWriteJson { schema, file_info, .. }) => Self::TabularWriteJson(TabularWriteJson::new(schema.clone(), file_info.clone(), input.clone())),
                 #[cfg(feature = "python")]
                 Self::IcebergWrite(IcebergWrite { schema, iceberg_info, .. }) => Self::IcebergWrite(IcebergWrite::new(schema.clone(), iceberg_info.clone(), input.clone())),
+                #[cfg(feature = "python")]
+                Self::DeltaLakeWrite(DeltaLakeWrite {schema, delta_lake_info, .. }) => Self::DeltaLakeWrite(DeltaLakeWrite::new(schema.clone(), delta_lake_info.clone(), input.clone())),
                 _ => panic!("Physical op {:?} has two inputs, but got one", self),
             },
             [input1, input2] => match self {
@@ -396,6 +410,8 @@ impl PhysicalPlan {
             Self::MonotonicallyIncreasingId(..) => "MonotonicallyIncreasingId",
             #[cfg(feature = "python")]
             Self::IcebergWrite(..) => "IcebergWrite",
+            #[cfg(feature = "python")]
+            Self::DeltaLakeWrite(..) => "DeltaLakeWrite",
         };
         name.to_string()
     }
@@ -434,6 +450,8 @@ impl PhysicalPlan {
             }
             #[cfg(feature = "python")]
             Self::IcebergWrite(iceberg_info) => iceberg_info.multiline_display(),
+            #[cfg(feature = "python")]
+            Self::DeltaLakeWrite(delta_lake_info) => delta_lake_info.multiline_display(),
         }
     }
 
@@ -554,6 +572,31 @@ fn iceberg_write(
             &iceberg_info.iceberg_properties,
             iceberg_info.spec_id,
             iceberg_info
+                .io_config
+                .as_ref()
+                .map(|cfg| common_io_config::python::IOConfig {
+                    config: cfg.clone(),
+                }),
+        ))?;
+    Ok(py_iter.into())
+}
+
+#[allow(clippy::too_many_arguments)]
+#[cfg(feature = "python")]
+fn deltalake_write(
+    py: Python<'_>,
+    upstream_iter: PyObject,
+    schema: &SchemaRef,
+    delta_lake_info: &DeltaLakeCatalogInfo,
+) -> PyResult<PyObject> {
+    let py_iter = py
+        .import(pyo3::intern!(py, "daft.execution.rust_physical_plan_shim"))?
+        .getattr(pyo3::intern!(py, "write_deltalake"))?
+        .call1((
+            upstream_iter,
+            &delta_lake_info.path,
+            PySchema::from(schema.clone()),
+            delta_lake_info
                 .io_config
                 .as_ref()
                 .map(|cfg| common_io_config::python::IOConfig {
@@ -1004,6 +1047,17 @@ impl PhysicalPlan {
                 iceberg_info,
                 input,
             }) => iceberg_write(py, input.to_partition_tasks(py, psets)?, iceberg_info),
+            #[cfg(feature = "python")]
+            PhysicalPlan::DeltaLakeWrite(DeltaLakeWrite {
+                schema,
+                delta_lake_info,
+                input,
+            }) => deltalake_write(
+                py,
+                input.to_partition_tasks(py, psets)?,
+                schema,
+                delta_lake_info,
+            ),
         }
     }
 }

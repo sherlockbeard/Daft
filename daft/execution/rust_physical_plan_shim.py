@@ -277,3 +277,17 @@ def write_iceberg(
         spec_id=spec_id,
         io_config=io_config,
     )
+
+
+def write_deltalake(
+    input: physical_plan.InProgressPhysicalPlan[PartitionT],
+    path: str,
+    schema: PySchema,
+    io_config: IOConfig | None,
+) -> physical_plan.InProgressPhysicalPlan[PartitionT]:
+    return physical_plan.deltalake_write(
+        input,
+        path,
+        Schema._from_pyschema(schema),
+        io_config,
+    )
