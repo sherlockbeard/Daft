@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+
+from deltalake import DeltaTable
 
 from daft.daft import (
     FileFormat,
@@ -279,15 +281,33 @@ def write_iceberg(
     )
 
 
+from pyarrow.dataset import HivePartitioning
+from pyarrow.fs import PyFileSystem
+
+
 def write_deltalake(
     input: physical_plan.InProgressPhysicalPlan[PartitionT],
     path: str,
-    schema: PySchema,
-    io_config: IOConfig | None,
+    large_dtypes: bool,
+    current_version: int,
+    mode: str,
+    partitioning: HivePartitioning | None,
+    filesystem: PyFileSystem,
+    invariants: list[tuple[str, str]] | None,
+    delta_table: DeltaTable | None,
+    file_writer_spec: list[tuple[str, int | None]],
+    partition_filters: list[tuple[str, str, Any]] | None,
 ) -> physical_plan.InProgressPhysicalPlan[PartitionT]:
     return physical_plan.deltalake_write(
         input,
         path,
-        Schema._from_pyschema(schema),
-        io_config,
+        large_dtypes,
+        current_version,
+        mode,
+        partitioning,
+        filesystem,
+        invariants,
+        delta_table,
+        file_writer_spec,
+        partition_filters,
     )

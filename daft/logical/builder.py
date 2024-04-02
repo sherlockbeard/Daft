@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pathlib
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from daft.daft import CountMode, FileFormat, IOConfig, JoinStrategy, JoinType
 from daft.daft import LogicalPlanBuilder as _LogicalPlanBuilder
@@ -209,9 +209,38 @@ class LogicalPlanBuilder:
         builder = self._builder.iceberg_write(name, location, spec_id, schema, props, columns, io_config)
         return LogicalPlanBuilder(builder)
 
-    def write_delta(self, path: str | pathlib.Path, io_config: IOConfig) -> LogicalPlanBuilder:
+    import pyarrow as pa
+    from deltalake import DeltaTable
+    from pyarrow.dataset import HivePartitioning
+    from pyarrow.fs import PyFileSystem
 
-        schema = self.schema()
-        columns = schema.column_names()
-        builder = self._builder.delta_write(str(path), columns, io_config)
+    def write_delta(
+        self,
+        path: str | pathlib.Path,
+        partitioning: HivePartitioning | None,
+        mode: str,
+        current_version: int,
+        filesystem: PyFileSystem,
+        large_dtypes: bool,
+        invariants: list[tuple[str, str]] | None,
+        delta_table: DeltaTable | None,
+        file_writer_spec: list[tuple[str, int | None]],
+        partition_filters: list[tuple[str, str, Any]] | None,
+        io_config: IOConfig,
+    ) -> LogicalPlanBuilder:
+        columns_name = self.schema().column_names()
+        builder = self._builder.delta_write(
+            str(path),
+            columns_name,
+            partitioning,
+            mode,
+            current_version,
+            filesystem,
+            large_dtypes,
+            delta_table,
+            partition_filters,
+            file_writer_spec,
+            invariants,
+            io_config,
+        )
         return LogicalPlanBuilder(builder)

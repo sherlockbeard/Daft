@@ -4,7 +4,9 @@ import itertools
 import pathlib
 import sys
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Generic
+from typing import TYPE_CHECKING, Any, Generic
+
+from deltalake import DeltaTable
 
 if sys.version_info < (3, 8):
     from typing_extensions import Protocol
@@ -414,11 +416,22 @@ class WriteIceberg(SingleOutputInstruction):
         )
 
 
+from pyarrow.dataset import HivePartitioning
+from pyarrow.fs import PyFileSystem
+
+
 @dataclass(frozen=True)
 class WriteDeltaLake(SingleOutputInstruction):
     base_path: str
-    schema: Schema
-    io_config: IOConfig | None
+    large_dtypes: bool
+    current_version: int
+    mode: str
+    partitioning: HivePartitioning | None
+    filesystem: PyFileSystem
+    invariants: list[tuple[str, str]] | None
+    delta_table: DeltaTable | None
+    file_writer_spec: list[tuple[str, int | None]]
+    partition_filters: list[tuple[str, str, Any]] | None
 
     def run(self, inputs: list[MicroPartition]) -> list[MicroPartition]:
         return self._write_deltalake(inputs)
@@ -442,9 +455,16 @@ class WriteDeltaLake(SingleOutputInstruction):
     def _handle_file_write(self, input: MicroPartition) -> MicroPartition:
         return table_io.write_deltalake(
             input,
+            large_dtypes=self.large_dtypes,
             base_path=self.base_path,
-            schema=self.schema,
-            io_config=self.io_config,
+            current_version=self.current_version,
+            mode=self.mode,
+            partitioning=self.partitioning,
+            filesystem=self.filesystem,
+            invariants=self.invariants,
+            delta_table=self.delta_table,
+            file_writer_spec=self.file_writer_spec,
+            partition_filters=self.partition_filters,
         )
 
 

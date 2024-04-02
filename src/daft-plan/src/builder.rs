@@ -412,16 +412,34 @@ impl LogicalPlanBuilder {
     pub fn delta_write(
         &self,
         path: String,
-        column: Vec<String>,
+        columns_name: Vec<String>,
+        partitioning: PyObject,
+        mode: String,
+        current_version: i32,
+        filesystem: PyObject,
+        large_dtypes: bool,
+        file_writer_spec: Option<Vec<(String, Option<i32>)>>,
+        invariants: Option<Vec<(String, String)>>,
+        delta_table: PyObject,
+        partition_filters: PyObject,
         io_config: Option<IOConfig>,
     ) -> DaftResult<Self> {
         use crate::sink_info::DeltaLakeCatalogInfo;
         let sink_info = SinkInfo::CatalogInfo(CatalogInfo {
             catalog: crate::sink_info::CatalogType::DeltaLake(DeltaLakeCatalogInfo {
                 path,
+                partitioning,
+                mode,
+                current_version,
+                filesystem,
+                large_dtypes,
+                file_writer_spec,
+                invariants,
+                delta_table,
+                partition_filters,
                 io_config,
             }),
-            catalog_columns: column,
+            catalog_columns: columns_name,
         });
 
         let logical_plan: LogicalPlan =
@@ -663,12 +681,34 @@ impl PyLogicalPlanBuilder {
     pub fn delta_write(
         &self,
         path: String,
-        column: Vec<String>,
+        columns_name: Vec<String>,
+        partitioning: PyObject,
+        mode: String,
+        current_version: i32,
+        filesystem: PyObject,
+        large_dtypes: bool,
+        delta_table: PyObject,
+        partition_filters: PyObject,
+        file_writer_spec: Option<Vec<(String, Option<i32>)>>,
+        invariants: Option<Vec<(String, String)>>,
         io_config: Option<common_io_config::python::IOConfig>,
     ) -> PyResult<Self> {
         Ok(self
             .builder
-            .delta_write(path, column, io_config.map(|cfg| cfg.config))?
+            .delta_write(
+                path,
+                columns_name,
+                partitioning,
+                mode,
+                current_version,
+                filesystem,
+                large_dtypes,
+                file_writer_spec,
+                invariants,
+                delta_table,
+                partition_filters,
+                io_config.map(|cfg| cfg.config),
+            )?
             .into())
     }
 

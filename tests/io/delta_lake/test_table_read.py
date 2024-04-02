@@ -4,7 +4,7 @@ import contextlib
 
 import pytest
 
-from daft.delta_lake.delta_lake_scan import _io_config_to_storage_options
+from daft.delta_lake.delta_lake_storage_function import _io_config_to_storage_options
 
 deltalake = pytest.importorskip("deltalake")
 
@@ -38,11 +38,13 @@ def test_deltalake_read_basic(tmp_path, base_table):
     expected_schema = Schema.from_pyarrow_schema(deltalake.DeltaTable(path).schema().to_pyarrow())
     assert df.schema() == expected_schema
     assert_pyarrow_tables_equal(df.to_arrow(), base_table)
-    a = df.write_delta(str(tmp_path / "some_table2"))
-    a = df.write_delta(str(tmp_path / "some_table2"))
+    df.write_delta(str(tmp_path / "some_table2"), mode="append")
+    df.write_delta(str(tmp_path / "some_table2"), mode="append")
+    df1 = daft.read_delta_lake(str(tmp_path / "some_table2"))
+    df1.show()
+    df.write_delta(str(tmp_path / "some_table2"), mode="overwrite")
     df = daft.read_delta_lake(str(tmp_path / "some_table2"))
     df.show()
-    print(a)
 
 
 def test_deltalake_read_full(deltalake_table):

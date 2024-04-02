@@ -213,7 +213,6 @@ impl PhysicalPlan {
             }
             #[cfg(feature = "python")]
             Self::DeltaLakeWrite(DeltaLakeWrite { input, .. }) => input.clustering_spec(),
-            // not sure what clustering_spec (random thoughts)
         }
     }
 
@@ -586,7 +585,6 @@ fn iceberg_write(
 fn deltalake_write(
     py: Python<'_>,
     upstream_iter: PyObject,
-    schema: &SchemaRef,
     delta_lake_info: &DeltaLakeCatalogInfo,
 ) -> PyResult<PyObject> {
     let py_iter = py
@@ -595,13 +593,15 @@ fn deltalake_write(
         .call1((
             upstream_iter,
             &delta_lake_info.path,
-            PySchema::from(schema.clone()),
-            delta_lake_info
-                .io_config
-                .as_ref()
-                .map(|cfg| common_io_config::python::IOConfig {
-                    config: cfg.clone(),
-                }),
+            delta_lake_info.large_dtypes,
+            delta_lake_info.current_version,
+            &delta_lake_info.mode,
+            &delta_lake_info.partitioning,
+            &delta_lake_info.filesystem,
+            delta_lake_info.invariants.clone(),
+            &delta_lake_info.delta_table,
+            delta_lake_info.file_writer_spec.clone(),
+            &delta_lake_info.partition_filters,
         ))?;
     Ok(py_iter.into())
 }
@@ -1049,15 +1049,10 @@ impl PhysicalPlan {
             }) => iceberg_write(py, input.to_partition_tasks(py, psets)?, iceberg_info),
             #[cfg(feature = "python")]
             PhysicalPlan::DeltaLakeWrite(DeltaLakeWrite {
-                schema,
+                schema: _,
                 delta_lake_info,
                 input,
-            }) => deltalake_write(
-                py,
-                input.to_partition_tasks(py, psets)?,
-                schema,
-                delta_lake_info,
-            ),
+            }) => deltalake_write(py, input.to_partition_tasks(py, psets)?, delta_lake_info),
         }
     }
 }

@@ -1,6 +1,6 @@
 import builtins
 from enum import Enum
-from typing import Any, Callable, TYPE_CHECKING
+from typing import Any, Callable, TYPE_CHECKING, List, Optional, Tuple
 
 from daft.runners.partitioning import PartitionCacheEntry
 from daft.execution import physical_plan
@@ -11,6 +11,10 @@ from daft.io.scan import ScanOperator
 if TYPE_CHECKING:
     from pyiceberg.schema import Schema as IcebergSchema
     from pyiceberg.table import TableProperties as IcebergTableProperties
+    from pyarrow.dataset import HivePartitioning
+    import pyarrow as pa
+    from pyarrow.fs import PyFileSystem
+    from deltalake import DeltaTable
 
 class ImageMode(Enum):
     """
@@ -1262,7 +1266,16 @@ class LogicalPlanBuilder:
     def delta_write(
         self,
         path: str,
-        columns: list[str] | None = None,
+        columns_name: list[str],
+        partitioning: HivePartitioning | None,
+        mode: str,
+        current_version: int,
+        filesystem: PyFileSystem,
+        large_dtypes: bool,
+        delta_table: Optional[DeltaTable],
+        partition_filters: Optional[List[Tuple[str, str, Any]]],
+        file_writer_spec: list[tuple[str, Optional[int]]],
+        invariants: List[Tuple[str, str]] | None,
         io_config: IOConfig | None = None,
     ) -> LogicalPlanBuilder: ...
     def schema(self) -> PySchema: ...
