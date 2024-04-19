@@ -4,7 +4,7 @@ import datetime
 
 import pytest
 
-from daft.delta_lake.delta_lake_scan import _io_config_to_storage_options
+from daft.delta_lake.delta_lake_storage_function import _io_config_to_storage_options
 
 deltalake = pytest.importorskip("deltalake")
 
